@@ -8,7 +8,12 @@ var program  = require('commander'),
     Entities = require('html-entities').AllHtmlEntities;
 
 // Formats the inputted tags for the StackOverflow API
-var so_format = function (str) { return str.replace(',', ';'); }
+var so_format = function (str) {
+  return str
+    .replace(',', ';')
+    // Some hardcoded aliases
+    .replace(';js;', ';javascript;');
+}
 
 program
   .version(require('./package.json').version)
@@ -37,52 +42,60 @@ var search_so = function (searchterm, p) {
       q: searchterm
     }
 
+    // Add tags if user added them
     if (program.tags) filter.tagged = program.tags;
 
     // Query StackOverflow
     stack_api.search.advanced(filter, function (err, results) {
       if (err) return console.error(err);
 
-      // Create answers
-      var answer_options = results.items.map(function (item) {
-        return {
-          name:  entities.decode(item.title),
-          value: item.link
-        }
-      });
-
-      // Add a more link if there are more
-      if (results.has_more) {
-        answer_options.push(new inquirer.Separator());
-        answer_options.push({
-          name: 'More',
-          value: 'request_more_questions'
+      // Are there answers
+      if (results.items.length) {
+        // Create answers
+        var answer_options = results.items.map(function (item) {
+          return {
+            name:  entities.decode(item.title),
+            value: item.link
+          }
         });
-        answer_options.push(new inquirer.Separator());
 
-      // Add a separator to delimit wrapping
-      } else if (answer_options.length >= 7) {
-        answer_options.push(new inquirer.Separator());
+        // Add a more link if there are more
+        if (results.has_more) {
+          answer_options.push(new inquirer.Separator());
+          answer_options.push({
+            name: 'More',
+            value: 'request_more_questions'
+          });
+          answer_options.push(new inquirer.Separator());
+
+        // Add a separator to delimit wrapping
+        } else if (answer_options.length >= 7) {
+          answer_options.push(new inquirer.Separator());
+        }
+
+        // Create question
+        var questions = [
+          {
+            type: 'list',
+            name: 'so_question',
+            message: 'Pick a question:',
+            choices: answer_options
+          }
+        ];
+
+        // Ask user
+        inquirer.prompt(questions, function (answers) {
+          if (answers.so_question === 'request_more_questions') {
+            return search_so(searchterm, p + 1);
+          }
+
+          open(answers.so_question);
+        });
+
+      // There were no questions matching
+      } else {
+        console.log('No questions matched your criteria.');
       }
-
-      // Create question
-      var questions = [
-        {
-          type: 'list',
-          name: 'so_question',
-          message: 'Pick a question:',
-          choices: answer_options
-        }
-      ];
-
-      // Ask user
-      inquirer.prompt(questions, function (answers) {
-        if (answers.so_question === 'request_more_questions') {
-          return search_so(searchterm, p + 1);
-        }
-
-        open(answers.so_question);
-      });
     });
   });
 }
