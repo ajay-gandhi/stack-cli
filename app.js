@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 
+// NPM modules
 var program  = require('commander'),
     inquirer = require('inquirer'),
-    StackEx  = require('stackexchange'),
-    Promise  = require('es6-promise').Promise,
     open     = require('open'),
-    Entities = require('html-entities').AllHtmlEntities;
+    readline = require('readline');
+
+// Local modules
+var stack_overflow = require('./lib/stackoverflow'),
+    printer        = require('./lib/printer');
 
 // Formats the inputted tags for the StackOverflow API
 var so_format = function (str) {
@@ -25,80 +28,98 @@ if (!program.args.length) {
     program.help();
 }
 
-// Initialize objects
-var stack_api = new StackEx({ version: 2.2 }),
-    entities  = new Entities();
-
-/**
- * Main code, recursively searches if necessary, etc
+/** 
+ * Wraps the question picker to keep asking if the user selects "More"
  */
-var search_so = function (searchterm, p) {
+var pick_so_question = function () {
   return new Promise(function (resolve, reject) {
-    // Setup query
-    var filter = {
-      sort: 'relevance',
-      order: 'desc',
-      page: p,
-      q: searchterm
-    }
+    stack_overflow
+      .search_questions(program.args.join(' '), program.tags)
+      .then(function (questions) {
 
-    // Add tags if user added them
-    if (program.tags) filter.tagged = program.tags;
+        // Create answer choices
+        var answer_choices = questions.data.slice();
+        answer_choices.push(new inquirer.Separator());
 
-    // Query StackOverflow
-    stack_api.search.advanced(filter, function (err, results) {
-      if (err) return console.error(err);
-
-      // Are there answers
-      if (results.items.length) {
-        // Create answers
-        var answer_options = results.items.map(function (item) {
-          return {
-            name:  entities.decode(item.title),
-            value: item.link
-          }
-        });
-
-        // Add a more link if there are more
-        if (results.has_more) {
-          answer_options.push(new inquirer.Separator());
-          answer_options.push({
+        if (questions.more) {
+          answer_choices.push({
             name: 'More',
             value: 'request_more_questions'
           });
-          answer_options.push(new inquirer.Separator());
-
-        // Add a separator to delimit wrapping
-        } else if (answer_options.length >= 7) {
-          answer_options.push(new inquirer.Separator());
+          answer_choices.push(new inquirer.Separator());
         }
 
-        // Create question
-        var questions = [
-          {
-            type: 'list',
-            name: 'so_question',
-            message: 'Pick a question:',
-            choices: answer_options
-          }
-        ];
+        // Create questions
+        var inq_questions = [{
+          type: 'list',
+          name: 'so_question',
+          message: 'Pick a question:',
+          choices: answer_choices
+        }];
 
-        // Ask user
-        inquirer.prompt(questions, function (answers) {
+        inquirer.prompt(inq_questions, function (answers) {
+          // User requested more questions
           if (answers.so_question === 'request_more_questions') {
-            return search_so(searchterm, p + 1);
+            pick_so_question.then(resolve);
+
+          // User picked a question
+          } else {
+            // Only want ids
+            var ids = questions.data.map(function (q) {
+              return q.value;
+            });
+
+            resolve({
+              all: ids,
+              main: answers.so_question
+            });
           }
-
-          open(answers.so_question);
         });
-
-      // There were no questions matching
-      } else {
-        console.log('No questions matched your criteria.');
-      }
-    });
+      })
+      .catch(function (e) {
+        console.error(e);
+      });
   });
 }
 
-// Call the above function
-search_so(program.args.join(' '), 1);
+var user_q_id;
+
+// List the questions
+pick_so_question()
+  .then(function (q_data) {
+    user_q_id = q_data.main;
+
+    // Retrieve the questions, and display the selected one
+    return stack_overflow.get_questions(q_data.all);
+  })
+  .then(function (more_data) {
+    // Only want user's q
+    var user_q = more_data.reduce(function (acc, q) {
+      return (q.id == user_q_id) ? q : acc;
+    }, false);
+
+    printer.ruler();
+    printer.title(user_q.title);
+    printer.content(user_q.body);
+
+    return stack_overflow.get_answers(user_q_id);
+  })
+  .then(function (answers) {
+    var ans_choices = answers.map(function (a) {
+      return {
+        name: a.summary,
+        value: a.body
+      }
+    });
+
+    var question = [{
+      type: 'list',
+      name: 'which_answer',
+      message: 'Choose an answer:',
+      choices: ans_choices
+    }];
+
+    inquirer.prompt(question, function (answers) {
+      printer.content(answers.which_answer);
+    });
+  });
