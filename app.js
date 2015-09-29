@@ -30,24 +30,28 @@ if (!program.args.length) {
     program.help();
 }
 
+// Local cache of properties
+// Need this to keep a copy of vars between promises
 var cache = {
   user_q_id:  0,
   user_q_url: '',
   answers:    {}
 };
 
-// List the questions
 util
+  // List the questions relevant to the search
   .pick_so_question(stack_overflow, program.args.join(' '), program.tags)
+  // Retrieve question content
   .then(function (q_data) {
     cache.user_q_id = q_data.main;
 
     // Retrieve the question content, and display the selected one
     return stack_overflow.get_questions(q_data.all);
   })
-  .then(function (more_data) {
+  // Display question, ask for next command
+  .then(function (questions_with_content) {
     // Only want user's q
-    var user_q = more_data.reduce(function (acc, q) {
+    var user_q = questions_with_content.reduce(function (acc, q) {
       return (q.id == cache.user_q_id) ? q : acc;
     }, false);
 
@@ -72,6 +76,7 @@ util
     ];
     return util.ask_list(commands, 'What would you like to do?');
   })
+  // Execute command, possibly fetch answers
   .then(function (command) {
     // Open in browser
     if (command === 'open') {
@@ -82,6 +87,7 @@ util
       return stack_overflow.get_answers(cache.user_q_id);
     }
   })
+  // List answers, let user choose one
   .then(function (answers) {
     cache.answers = answers;
 
@@ -94,6 +100,7 @@ util
 
     return util.ask_list(answer_choices, 'Choose an answer:');
   })
+  // Print answer, display next commands
   .then(function (id) {
     // Print selected answer
     printer.ruler();
@@ -102,9 +109,11 @@ util
 
     return util.answers_options(cache.answers, id, printer);
   })
+  // Open URL if requested
   .then(function (url) {
     if (url) open(url);
   })
+  // Catch all errors
   .catch(function (e) {
     throw e;
   });
