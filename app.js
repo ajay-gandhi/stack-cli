@@ -93,7 +93,7 @@ util
 
     var answer_choices = answers.map(function (answer, i) {
       return {
-        name: answer.summary,
+        name: util.sanitize(answer.summary),
         value: i
       }
     });
