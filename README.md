@@ -10,7 +10,7 @@ StackOverflow at your fingertips with excessively simple usage.
 Install globally with `npm`:
 
 ```bash
-$ npm install -g stack-cli
+$ npm install -g ajay-gandhi/stack-cli
 ```
 
 Then ask away:
@@ -23,3 +23,4 @@ $ stack python global interpreter lock
 Select from the options and learn away!
 
 Run `stack` with the `-h, --help` flag for the full help.
+
